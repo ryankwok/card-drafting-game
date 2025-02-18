@@ -13,6 +13,7 @@ import type {
   GameConfig,
   GameCard,
   InnateAction,
+  InnateActionType,
   GameState,
   PlayerState,
   ResourceType,
@@ -28,13 +29,23 @@ import InnateActions from "./innate-actions"
 import { Achievements } from "./achievements"
 import { GameTooltip } from "./game-tooltip"
 
-type GameProps = {
+/** Colors assigned to players for visual distinction */
+const PLAYER_COLORS = [
+  "bg-red-100",
+  "bg-blue-100", 
+  "bg-green-100", 
+  "bg-yellow-100", 
+  "bg-purple-100", 
+  "bg-pink-100"
+]
+
+interface GameProps {
+  /** Configuration settings for the game */
   config: GameConfig
 }
 
-const playerColors = ["bg-red-100", "bg-blue-100", "bg-green-100", "bg-yellow-100", "bg-purple-100", "bg-pink-100"]
-
 export default function Game({ config }: GameProps) {
+  /** Core game state including players, cards, and achievements */
   const [gameState, setGameState] = useState<GameState>({
     cardPool: [],
     players: [],
@@ -45,15 +56,25 @@ export default function Game({ config }: GameProps) {
     achievements: {
       projects: [],
       awards: [],
-      sponsorCost: { type: "", amount: 0, resourceType: "" },
+      sponsorCost: { type: "discard", amount: 0 }, // Initialize with valid type
       claimedProjects: 0,
       sponsoredAwards: 0,
     },
   })
+
+  /** Tracks whether the player is in discard mode */
   const [isDiscardMode, setIsDiscardMode] = useState(false)
+  
+  /** Number of cards that need to be discarded */
   const [discardActionAmount, setDiscardActionAmount] = useState(0)
+  
+  /** Available resource types in the current game */
   const [gameResourceTypes, setGameResourceTypes] = useState<ResourceType[]>([])
+  
+  /** Position of the context menu for card actions */
   const [contextMenuPosition, setContextMenuPosition] = useState<{ x: number; y: number } | null>(null)
+  
+  /** Tracks if an achievement has been claimed this round */
   const [achievementClaimedThisRound, setAchievementClaimedThisRound] = useState(false)
 
   useEffect(() => {
@@ -83,7 +104,7 @@ export default function Game({ config }: GameProps) {
       victoryPoints: 0,
       actionPoints: config.actionPointsPerTurn,
       achievementPoints: 0,
-      color: playerColors[i % playerColors.length], // Assign color to each player
+      color: PLAYER_COLORS[i % PLAYER_COLORS.length], // Assign color to each player
     }))
     const initialInnateActions = generateInnateActions(config, initialGameResourceTypes)
 
@@ -115,8 +136,8 @@ export default function Game({ config }: GameProps) {
         reward: {
           resources: {},
           victoryPoints: 0,
-          innateAction: null,
-        },
+          innateAction: undefined
+        }
       }
 
       // Generate cost based on tier
@@ -146,7 +167,7 @@ export default function Game({ config }: GameProps) {
         card.reward.innateAction = {
           name: "Bonus Action",
           description: "Gain an extra action point this turn",
-          effect: (player: PlayerState) => ({ ...player, actionPoints: player.actionPoints + 1 }),
+          effect: (player: PlayerState) => ({ updatedPlayer: { ...player, actionPoints: player.actionPoints + 1 } }),
         }
         totalReward = Math.max(0, totalReward - 3)
       }
@@ -163,7 +184,9 @@ export default function Game({ config }: GameProps) {
       if (tier > 0 && Math.random() < 0.4) {
         const factoryType = resourceTypes[Math.floor(Math.random() * resourceTypes.length)]
         const factoryAmount = tier === 1 ? 1 : Math.random() < 0.5 ? 2 : 3
-        card.reward.resources[factoryType] = `${card.reward.resources[factoryType] || 0}(+${factoryAmount})`
+        // Add to factories instead of resources for factory cards
+        card.reward.resources[factoryType] = factoryAmount
+        card.reward.isFactory = true
       }
 
       return card
@@ -184,7 +207,11 @@ export default function Game({ config }: GameProps) {
     return cards
   }
 
-  const dealStartingHands = (cardPool: GameCard[], players: PlayerState[], startingHandSize: number) => {
+  const dealStartingHands = (
+    cardPool: GameCard[],
+    players: PlayerState[],
+    startingHandSize: number
+  ): { updatedCardPool: GameCard[]; updatedPlayers: PlayerState[] } => {
     const updatedCardPool = [...cardPool]
     const updatedPlayers = players.map((player) => {
       const hand: GameCard[] = []
@@ -204,7 +231,10 @@ export default function Game({ config }: GameProps) {
 
   const generateInnateActions = (config: GameConfig, resourceTypes: ResourceType[]): InnateAction[] => {
     const actions: InnateAction[] = []
-    const actionTypes = ["draw", "discard", "burn", "swapCards", "convert", "buildFactory", "exchange"]
+    const actionTypes: InnateActionType[] = [
+      "draw", "discard", "burn", "swapCards",
+      "convert", "buildFactory", "exchange"
+    ]
 
     for (let i = 0; i < config.innateActionCount; i++) {
       const actionType = actionTypes[Math.floor(Math.random() * actionTypes.length)]
@@ -366,9 +396,12 @@ export default function Game({ config }: GameProps) {
     }
   }
 
+  /**
+   * Creates a convert action that transforms one resource type into another.
+   */
   const generateConvertAction = (id: number, resourceTypes: ResourceType[]): InnateAction => {
     const sourceResourceType = resourceTypes[Math.floor(Math.random() * resourceTypes.length)]
-    let targetResourceType
+    let targetResourceType: ResourceType
     do {
       targetResourceType = resourceTypes[Math.floor(Math.random() * resourceTypes.length)]
     } while (targetResourceType === sourceResourceType)
@@ -395,6 +428,9 @@ export default function Game({ config }: GameProps) {
     }
   }
 
+  /**
+   * Creates a build factory action that constructs resource-producing buildings.
+   */
   const generateBuildFactoryAction = (id: number, resourceTypes: ResourceType[]): InnateAction => {
     const resourceType = resourceTypes[Math.floor(Math.random() * resourceTypes.length)]
     return {
@@ -414,9 +450,13 @@ export default function Game({ config }: GameProps) {
     }
   }
 
+  /**
+   * Creates an exchange action that trades resources or cards.
+   */
   const generateExchangeAction = (id: number, resourceTypes: ResourceType[]): InnateAction => {
-    const giveType = Math.random() < 0.5 ? "resource" : "card"
-    const receiveType = Math.random() < 0.5 ? "resource" : "card"
+    type ExchangeType = "resource" | "card"
+    const giveType: ExchangeType = Math.random() < 0.5 ? "resource" : "card"
+    const receiveType: ExchangeType = Math.random() < 0.5 ? "resource" : "card"
     const giveAmount = Math.floor(Math.random() * 3) + 1
     const receiveAmount = Math.floor(Math.random() * 3) + 1
 
@@ -480,6 +520,14 @@ export default function Game({ config }: GameProps) {
     }
   }
 
+  // =========================================
+  // Card Management
+  // =========================================
+
+  /**
+   * Discards a card from the current player's hand.
+   * The card is returned to the card pool.
+   */
   const discardCard = (cardId: number) => {
     setGameState((prev) => {
       const currentPlayer = prev.players[prev.currentPlayer]
@@ -493,7 +541,9 @@ export default function Game({ config }: GameProps) {
         updatedCardPool.push(discardedCard)
       }
 
-      const updatedPlayers = prev.players.map((player) => (player.id === updatedPlayer.id ? updatedPlayer : player))
+      const updatedPlayers = prev.players.map((player) => 
+        player.id === updatedPlayer.id ? updatedPlayer : player
+      )
 
       return {
         ...prev,
@@ -511,6 +561,10 @@ export default function Game({ config }: GameProps) {
     })
   }
 
+  /**
+   * Draws cards for the current player.
+   * May trigger discard mode if required by game config.
+   */
   const drawCard = () => {
     if (gameState.cardPool.length === 0) return
 
@@ -533,7 +587,9 @@ export default function Game({ config }: GameProps) {
 
       updatedPlayer.actionPoints -= 1
 
-      const updatedPlayers = prev.players.map((player) => (player.id === updatedPlayer.id ? updatedPlayer : player))
+      const updatedPlayers = prev.players.map((player) => 
+        player.id === updatedPlayer.id ? updatedPlayer : player
+      )
 
       // Activate discard mode if necessary
       if (config.discardCardCount > 0 && config.discardChoice) {
@@ -560,6 +616,10 @@ export default function Game({ config }: GameProps) {
     })
   }
 
+  /**
+   * Plays a card from the current player's hand.
+   * Applies costs and rewards, including resource generation and factory building.
+   */
   const playCard = (cardId: number) => {
     setGameState((prev) => {
       const currentPlayer = prev.players[prev.currentPlayer]
@@ -569,41 +629,57 @@ export default function Game({ config }: GameProps) {
       const cardToPlay = updatedPlayer.hand.find((card) => card.id === cardId)
       if (cardToPlay && updatedPlayer.actionPoints > 0) {
         // Check if player has enough resources
-        if (Object.entries(cardToPlay.cost).every(([type, amount]) => updatedPlayer.resources[type] >= amount)) {
+        const canAfford = Object.entries(cardToPlay.cost).every(([type, amount]) => {
+          const resourceType = type as ResourceType
+          return updatedPlayer.resources[resourceType] >= (amount || 0)
+        })
+
+        if (canAfford) {
+          // Remove card from hand and add to played cards
           updatedPlayer.hand = updatedPlayer.hand.filter((card) => card.id !== cardId)
           updatedPlayer.playedCards.push(cardToPlay)
 
           // Deduct costs
           Object.entries(cardToPlay.cost).forEach(([type, amount]) => {
-            updatedPlayer.resources[type] -= amount
+            const resourceType = type as ResourceType
+            updatedPlayer.resources[resourceType] -= (amount || 0)
           })
 
           // Add rewards
-          Object.entries(cardToPlay.reward.resources).forEach(([type, amount]) => {
-            if (typeof amount === "string") {
-              const [resources, factories] = amount.split("(+").map((v) => Number.parseInt(v))
-              updatedPlayer.resources[type] = (updatedPlayer.resources[type] || 0) + resources
-              if (factories) {
-                updatedPlayer.factories[type] = (updatedPlayer.factories[type] || 0) + factories
+          if (cardToPlay.reward.isFactory) {
+            // Handle factory rewards by adding to factories
+            Object.entries(cardToPlay.reward.resources).forEach(([type, amount]) => {
+              const resourceType = type as ResourceType
+              if (amount !== undefined) {
+                updatedPlayer.factories[resourceType] = 
+                  (updatedPlayer.factories[resourceType] || 0) + amount
               }
-            } else {
-              updatedPlayer.resources[type] = (updatedPlayer.resources[type] || 0) + amount
-            }
-          })
+            })
+          } else {
+            // Handle regular resource rewards
+            Object.entries(cardToPlay.reward.resources).forEach(([type, amount]) => {
+              const resourceType = type as ResourceType
+              if (amount !== undefined) {
+                updatedPlayer.resources[resourceType] = 
+                  (updatedPlayer.resources[resourceType] || 0) + amount
+              }
+            })
+          }
 
           updatedPlayer.victoryPoints += cardToPlay.reward.victoryPoints
           updatedPlayer.actionPoints -= 1
 
           // Apply innate action reward if any
           if (cardToPlay.reward.innateAction) {
-            const { updatedPlayer: updatedPlayerWithInnateAction } =
-              cardToPlay.reward.innateAction.effect(updatedPlayer)
-            updatedPlayer.actionPoints = updatedPlayerWithInnateAction.actionPoints
+            const result = cardToPlay.reward.innateAction.effect(updatedPlayer)
+            updatedPlayer.actionPoints = result.updatedPlayer.actionPoints
           }
         }
       }
 
-      const updatedPlayers = prev.players.map((player) => (player.id === updatedPlayer.id ? updatedPlayer : player))
+      const updatedPlayers = prev.players.map((player) => 
+        player.id === updatedPlayer.id ? updatedPlayer : player
+      )
 
       // Check for win condition
       if (updatedPlayer.victoryPoints + updatedPlayer.achievementPoints >= 10) {
@@ -614,6 +690,14 @@ export default function Game({ config }: GameProps) {
     })
   }
 
+  // =========================================
+  // UI Event Handlers
+  // =========================================
+
+  /**
+   * Handles clicking on a card in the player's hand.
+   * Either plays or discards the card based on current game mode.
+   */
   const handleCardClick = (cardId: number) => {
     if (isDiscardMode) {
       discardCard(cardId)
@@ -622,34 +706,39 @@ export default function Game({ config }: GameProps) {
     }
   }
 
+  /**
+   * Handles right-click context menu for cards.
+   * Currently disabled but structure kept for future functionality.
+   */
   const handleCardContextMenu = (e: React.MouseEvent, cardId: number) => {
     e.preventDefault()
     setContextMenuPosition({ x: e.clientX, y: e.clientY })
   }
 
+  /**
+   * Handles actions selected from the card context menu.
+   * Currently disabled but structure kept for future functionality.
+   */
   const handleContextMenuAction = (action: string) => {
     switch (action) {
       case "play":
-        playSelectedCards()
+        console.warn("Context menu play action is deprecated")
         break
       case "discard":
-        discardSelectedCards()
+        console.warn("Context menu discard action is deprecated")
         break
-      // Add more actions as needed
     }
     setContextMenuPosition(null)
   }
 
-  const playSelectedCards = () => {
-    //This function is not used anymore, but kept for context menu functionality
-    console.warn("playSelectedCards is deprecated. Use playCard instead.")
-  }
+  // =========================================
+  // Game Flow Control
+  // =========================================
 
-  const discardSelectedCards = () => {
-    //This function is not used anymore, but kept for context menu functionality
-    console.warn("discardSelectedCards is deprecated. Use discardCard instead.")
-  }
-
+  /**
+   * Performs an innate action selected by the player.
+   * Checks if the action is affordable before executing.
+   */
   const performInnateAction = (action: InnateAction) => {
     setGameState((prev) => {
       const currentPlayer = prev.players[prev.currentPlayer]
@@ -662,7 +751,8 @@ export default function Game({ config }: GameProps) {
           case "card":
             return currentPlayer.hand.length >= action.cost.amount
           case "resource":
-            return Object.values(currentPlayer.resources).some((amount) => amount >= action.cost.amount)
+            if (!action.cost.resourceType) return false
+            return currentPlayer.resources[action.cost.resourceType] >= action.cost.amount
           default:
             return false
         }
@@ -677,7 +767,9 @@ export default function Game({ config }: GameProps) {
       // Deduct action points
       updatedPlayer.actionPoints -= 1
 
-      const updatedPlayers = prev.players.map((player) => (player.id === updatedPlayer.id ? updatedPlayer : player))
+      const updatedPlayers = prev.players.map((player) => 
+        player.id === updatedPlayer.id ? updatedPlayer : player
+      )
 
       // Check for win condition
       if (updatedPlayer.victoryPoints >= 10) {
@@ -691,6 +783,10 @@ export default function Game({ config }: GameProps) {
     })
   }
 
+  /**
+   * Advances the game to the next player's turn.
+   * Generates resources from factories at the start of each round.
+   */
   const nextTurn = () => {
     setGameState((prev) => {
       const nextPlayer = (prev.currentPlayer + 1) % config.players
@@ -701,18 +797,21 @@ export default function Game({ config }: GameProps) {
       }
 
       let updatedPlayers = prev.players.map((player, index) =>
-        index === nextPlayer ? { ...player, actionPoints: config.actionPointsPerTurn } : player,
+        index === nextPlayer ? { ...player, actionPoints: config.actionPointsPerTurn } : player
       )
 
       // Generate resources from factories
       updatedPlayers = updatedPlayers.map((player) => ({
         ...player,
         resources: Object.fromEntries(
-          Object.entries(player.resources).map(([resourceType, amount]) => [
-            resourceType,
-            amount + (player.factories[resourceType] || 0),
-          ]),
-        ),
+          Object.entries(player.resources).map(([type, amount]) => {
+            const resourceType = type as ResourceType
+            return [
+              resourceType,
+              amount + (player.factories[resourceType] || 0)
+            ]
+          })
+        ) as Resources
       }))
 
       return {
@@ -725,6 +824,14 @@ export default function Game({ config }: GameProps) {
     setAchievementClaimedThisRound(false)
   }
 
+  // =========================================
+  // Achievement System
+  // =========================================
+
+  /**
+   * Generates the initial set of achievements for the game.
+   * Includes both projects that can be completed and awards that can be sponsored.
+   */
   const generateAchievements = (): Achievement => {
     const projects: Project[] = [
       {
@@ -754,7 +861,8 @@ export default function Game({ config }: GameProps) {
       {
         id: 5,
         description: "First player to discard 8 cards",
-        isCompleted: (player, gameState) => gameState.cardPool.filter((c) => c.lastOwnerId === player.id).length >= 8,
+        isCompleted: (player, gameState) => 
+          gameState.cardPool.filter((c) => c.lastOwnerId === player.id).length >= 8,
         claimed: false,
       },
     ]
@@ -763,7 +871,8 @@ export default function Game({ config }: GameProps) {
       {
         id: 1,
         description: "Player with bigger hand than any other player",
-        evaluate: (players) => players.indexOf(players.reduce((a, b) => (a.hand.length > b.hand.length ? a : b))),
+        evaluate: (players) => 
+          players.indexOf(players.reduce((a, b) => (a.hand.length > b.hand.length ? a : b))),
         sponsored: false,
       },
       {
@@ -772,7 +881,8 @@ export default function Game({ config }: GameProps) {
         evaluate: (players) =>
           players.indexOf(
             players.reduce((a, b) =>
-              Math.max(...a.playedCards.map((c) => c.suit)) > Math.max(...b.playedCards.map((c) => c.suit)) ? a : b,
+              Math.max(...a.playedCards.map((c) => c.suit ?? -1)) > 
+              Math.max(...b.playedCards.map((c) => c.suit ?? -1)) ? a : b,
             ),
           ),
         sponsored: false,
@@ -814,7 +924,13 @@ export default function Game({ config }: GameProps) {
       },
     ]
 
-    const sponsorCosts = [
+    type SponsorCost = {
+      type: "resource" | "discard" | "factory"
+      amount: number
+      resourceType?: ResourceType
+    }
+
+    const sponsorCosts: SponsorCost[] = [
       { type: "resource", amount: 10, resourceType: "wood" },
       { type: "resource", amount: 8, resourceType: "stone" },
       { type: "resource", amount: 6, resourceType: "brick" },
@@ -834,20 +950,29 @@ export default function Game({ config }: GameProps) {
     }
   }
 
+  /**
+   * Claims a project achievement for the current player.
+   * Can only be done once per turn and if the project is unclaimed.
+   */
   const claimProject = (projectId: number) => {
     if (achievementClaimedThisRound) return
     setGameState((prev) => {
       const updatedAchievements = { ...prev.achievements }
       const projectIndex = updatedAchievements.projects.findIndex((p) => p.id === projectId)
+      
       if (projectIndex !== -1 && !updatedAchievements.projects[projectIndex].claimed) {
         updatedAchievements.projects[projectIndex].claimed = true
-        updatedAchievements.projects[projectIndex].claimedBy = prev.currentPlayer // Add this line
+        updatedAchievements.projects[projectIndex].claimedBy = prev.currentPlayer
         updatedAchievements.claimedProjects++
+        
         const projectValue =
-          updatedAchievements.claimedProjects === 1 ? 7 : updatedAchievements.claimedProjects === 2 ? 5 : 3
+          updatedAchievements.claimedProjects === 1 ? 7 : 
+          updatedAchievements.claimedProjects === 2 ? 5 : 3
+        
         const updatedPlayers = [...prev.players]
         updatedPlayers[prev.currentPlayer].achievementPoints += projectValue
-        updatedPlayers[prev.currentPlayer].actionPoints -= 1 // Update 1: Deduct action point after claiming project
+        updatedPlayers[prev.currentPlayer].actionPoints -= 1
+        
         return {
           ...prev,
           achievements: updatedAchievements,
@@ -859,11 +984,16 @@ export default function Game({ config }: GameProps) {
     setAchievementClaimedThisRound(true)
   }
 
+  /**
+   * Sponsors an award for the current player.
+   * Requires paying a cost and can only be done once per turn.
+   */
   const sponsorAward = (awardId: number) => {
     if (achievementClaimedThisRound) return
     setGameState((prev) => {
       const updatedAchievements = { ...prev.achievements }
       const awardIndex = updatedAchievements.awards.findIndex((a) => a.id === awardId)
+      
       if (
         awardIndex !== -1 &&
         !updatedAchievements.awards[awardIndex].sponsored &&
@@ -872,6 +1002,7 @@ export default function Game({ config }: GameProps) {
         updatedAchievements.awards[awardIndex].sponsored = true
         updatedAchievements.awards[awardIndex].sponsoredBy = prev.currentPlayer
         updatedAchievements.sponsoredAwards++
+        
         const updatedPlayers = [...prev.players]
         const currentPlayer = updatedPlayers[prev.currentPlayer]
 
@@ -883,20 +1014,21 @@ export default function Game({ config }: GameProps) {
               currentPlayer.hand.splice(randomIndex, 1)
             }
           }
-        } else if (cost.type === "resource") {
+        } else if (cost.type === "resource" && cost.resourceType) {
           if (currentPlayer.resources[cost.resourceType] >= cost.amount) {
             currentPlayer.resources[cost.resourceType] -= cost.amount
           } else {
             return prev
           }
-        } else if (cost.type === "factory") {
+        } else if (cost.type === "factory" && cost.resourceType) {
           if (currentPlayer.factories[cost.resourceType] >= cost.amount) {
             currentPlayer.factories[cost.resourceType] -= cost.amount
           } else {
             return prev
           }
         }
-        currentPlayer.actionPoints -= 1 // Update 2: Deduct action point after sponsoring award
+        
+        currentPlayer.actionPoints -= 1
 
         // Update sponsor cost for next time
         updatedAchievements.sponsorCost = generateAchievements().sponsorCost
@@ -912,8 +1044,14 @@ export default function Game({ config }: GameProps) {
     setAchievementClaimedThisRound(true)
   }
 
+  // Get current player for UI rendering
   const currentPlayer = gameState.players[gameState.currentPlayer]
 
+  // =========================================
+  // Render Game UI
+  // =========================================
+
+  // Show game over screen if there's a winner
   if (gameState.winner !== null) {
     return (
       <Alert>
@@ -932,6 +1070,7 @@ export default function Game({ config }: GameProps) {
     )
   }
 
+  // Render main game UI
   return (
     <div className={`space-y-4 p-4 min-h-screen ${currentPlayer?.color}`}>
       <Achievements
@@ -995,7 +1134,10 @@ export default function Game({ config }: GameProps) {
                     onClick={() => handleCardClick(card.id)}
                     onContextMenu={(e) => handleCardContextMenu(e, card.id)}
                     isAffordable={
-                      Object.entries(card.cost).every(([type, amount]) => currentPlayer.resources[type] >= amount) &&
+                      Object.entries(card.cost).every(([type, amount]) => {
+                        const resourceType = type as ResourceType
+                        return currentPlayer.resources[resourceType] >= (amount || 0)
+                      }) &&
                       currentPlayer.actionPoints > 0
                     }
                     isDiscard={isDiscardMode}

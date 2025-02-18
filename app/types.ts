@@ -68,8 +68,10 @@ export type GameCard = {
     innateAction?: {
       name: string
       description: string
-      effect: (player: PlayerState) => PlayerState
+      effect: (player: PlayerState) => { updatedPlayer: PlayerState }
     }
+    /** Indicates if this card grants a factory */
+    isFactory?: boolean
   }
   /** Tracks the last player who owned this card (used for discard mechanics) */
   lastOwnerId?: number
