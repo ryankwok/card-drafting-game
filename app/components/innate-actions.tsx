@@ -41,10 +41,7 @@ export default function Actions({ actions, onActionSelect, currentPlayer, gameSt
               <GameTooltip content={`${action.description}. Cost: ${action.cost.amount} ${action.cost.type}`}>
                 <Button
                   key={action.id}
-                  onClick={() => {
-                    onActionSelect(action)
-                    currentPlayer.actionPoints -= 1
-                  }}
+                  onClick={() => onActionSelect(action)}
                   disabled={!affordable}
                   className={`w-full text-left justify-start ${
                     affordable ? "border-green-500" : "border-gray-300 text-gray-400"

@@ -22,7 +22,7 @@ export type Factories = {
 }
 
 export type Resource = {
-  type: string
+  type: ResourceType
   amount: number
 }
 
@@ -34,23 +34,23 @@ export type GameCard = {
   id: number
   name: string
   suit: number | null
-  cost: { [key: string]: number }
+  cost: { [key in ResourceType]?: number }
   reward: {
-    resources: { [key: string]: string }
+    resources: { [key in ResourceType]?: number }
     victoryPoints: number
   }
 }
 
-export type InnateActionType = "burn" | "skip" | "draw" | "build" | "buyVictoryPoints" | "swapCards" | "discard"
+export type InnateActionType = "burn" | "skip" | "draw" | "buyVictoryPoints" | "swapCards" | "discard" | "convert" | "buildFactory" | "exchange"
 export type ActionCost = {
-  type: "resource" | "card" | "factory"
-  resourceType?: string
+  type: "resource" | "card" | "factory" | "actionPoints"
   amount: number
+  resourceType?: ResourceType
 }
 
 export type ActionBenefit = {
   type: "resource" | "card" | "factory" | "victoryPoints"
-  resourceType?: string
+  resourceType?: ResourceType
   amount: number
 }
 
@@ -91,6 +91,7 @@ export type Project = {
   description: string
   isCompleted: (player: PlayerState, gameState: GameState) => boolean
   claimed: boolean
+  claimedBy?: number
 }
 
 export type Award = {
@@ -98,6 +99,7 @@ export type Award = {
   description: string
   evaluate: (players: PlayerState[]) => number // Returns the index of the winning player
   sponsored: boolean
+  sponsoredBy?: number
 }
 
 export type Achievement = {
