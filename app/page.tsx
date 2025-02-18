@@ -10,7 +10,7 @@ export default function Home() {
 
   return (
     <main className="container mx-auto p-4">
-      <h1 className="text-4xl font-bold mb-8 text-center">Card Drafting Game Prototype</h1>
+      <h1 className="text-4xl font-bold mb-8 text-center">Card Drafting Game Prototype 2</h1>
       {!gameConfig ? <GameSetup onConfigSubmit={setGameConfig} /> : <Game config={gameConfig} />}
     </main>
   )
